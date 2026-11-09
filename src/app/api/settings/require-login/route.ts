@@ -73,28 +73,26 @@ export async function GET() {
         isFeatureFlagEnabled("OMNIROUTE_OIDC_DISABLE_PASSWORD_LOGIN") ||
         process.env.OMNIROUTE_OIDC_DISABLE_PASSWORD_LOGIN === "true" ||
         process.env.OIDC_DISABLE_PASSWORD_LOGIN === "true");
-    return NextResponse.json({
-      authenticated,
-      requireLogin,
-      hasPassword,
-      setupComplete,
-      oidcEnabled,
-      oidcDisablePasswordLogin,
-      ...nodeInfo,
-    });
+    return NextResponse.json(
+      {
+        authenticated,
+        requireLogin,
+        hasPassword,
+        setupComplete,
+        oidcEnabled,
+        oidcDisablePasswordLogin,
+        ...nodeInfo,
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   } catch (error) {
     console.error("[API] Error fetching require-login settings:", error);
     return NextResponse.json(
+      { error: "Authentication settings are temporarily unavailable." },
       {
-        authenticated: false,
-        requireLogin: true,
-        hasPassword: true,
-        setupComplete: true,
-        oidcEnabled: false,
-        oidcDisablePasswordLogin: false,
-        ...nodeInfo,
-      },
-      { status: 200 }
+        status: 503,
+        headers: { "Cache-Control": "no-store" },
+      }
     );
   }
 }
