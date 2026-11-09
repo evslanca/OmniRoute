@@ -37,6 +37,8 @@ export default function OnboardingWizard() {
   const baseUrl = useDisplayBaseUrl();
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [setupCheckFailed, setSetupCheckFailed] = useState(false);
+  const [setupCheckRetry, setSetupCheckRetry] = useState(0);
   const apiEndpoint = `${baseUrl}/api/v1`;
 
   // Security step state
@@ -60,25 +62,46 @@ export default function OnboardingWizard() {
   const [testStatus, setTestStatus] = useState("idle"); // idle, testing, success, error
   const [testMessage, setTestMessage] = useState("");
 
-  // Check if setup is already complete
+  // Check setup with a bounded request so a stalled proxy/API cannot leave
+  // the onboarding route on an infinite loading screen.
   useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    let redirecting = false;
+    const timeoutId = window.setTimeout(() => controller.abort(), 12_000);
+
     const checkSetup = async () => {
       try {
-        const res = await fetch("/api/settings");
+        const res = await fetch("/api/settings", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
         if (res.ok) {
           const settings = await res.json();
           if (settings.setupComplete) {
+            redirecting = true;
             router.replace("/dashboard");
             return;
           }
+        } else if (res.status >= 500) {
+          throw new Error("setup_check_failed");
         }
+        // Preserve bootstrap behavior for 401/403 on fresh installations.
       } catch {
-        // Continue with setup
+        if (active) setSetupCheckFailed(true);
+      } finally {
+        window.clearTimeout(timeoutId);
+        if (active && !redirecting) setLoading(false);
       }
-      setLoading(false);
     };
-    checkSetup();
-  }, [router]);
+
+    void checkSetup();
+    return () => {
+      active = false;
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [router, setupCheckRetry]);
 
   const STEPS = STEP_IDS.map((id, i) => ({
     id,
@@ -271,6 +294,33 @@ export default function OnboardingWizard() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Spinner label={tc("loading")} />
+      </div>
+    );
+  }
+
+  if (setupCheckFailed) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="w-full max-w-lg">
+          <Card padding="lg" className="shadow-xl">
+            <div className="flex flex-col items-center gap-4 text-center">
+              <Icon name="warning" size={40} className="text-warning" />
+              <Alert variant="warning" className="w-full">
+                <p className="text-sm">{t("connectionError")}</p>
+              </Alert>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setSetupCheckFailed(false);
+                  setLoading(true);
+                  setSetupCheckRetry((attempt) => attempt + 1);
+                }}
+              >
+                {t("retry")}
+              </Button>
+            </div>
+          </Card>
+        </div>
       </div>
     );
   }
