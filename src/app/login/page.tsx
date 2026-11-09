@@ -24,6 +24,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [hasPassword, setHasPassword] = useState<boolean | null>(null);
   const [setupComplete, setSetupComplete] = useState<boolean | null>(null);
+  const [authStatusError, setAuthStatusError] = useState(false);
   const [oidcEnabled, setOidcEnabled] = useState<boolean | null>(null);
   const [oidcDisablePasswordLogin, setOidcDisablePasswordLogin] = useState<boolean | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -42,34 +43,42 @@ export default function LoginPage() {
 
       try {
         const res = await fetch("/api/settings/require-login", {
+          cache: "no-store",
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
 
-        if (res.ok) {
-          const data = await res.json();
-          if (data.nodeVersion) setNodeVersion(data.nodeVersion);
-          if (data.nodeCompatible === false) setNodeCompatible(false);
-          if (data.authenticated === true || data.requireLogin === false) {
-            window.location.href = withBasePath("/dashboard");
-            return;
-          }
-          setHasPassword(!!data.hasPassword);
-          setSetupComplete(!!data.setupComplete);
-          setOidcEnabled(!!data.oidcEnabled);
-          setOidcDisablePasswordLogin(!!data.oidcDisablePasswordLogin);
-        } else {
-          setHasPassword(true);
-          setSetupComplete(true);
-          setOidcEnabled(false);
-          setOidcDisablePasswordLogin(false);
+        if (!res.ok) {
+          throw new Error("Authentication settings are unavailable.");
         }
-      } catch (err) {
+
+        const data = await res.json();
+        if (
+          !data ||
+          typeof data !== "object" ||
+          typeof data.authenticated !== "boolean" ||
+          typeof data.requireLogin !== "boolean" ||
+          typeof data.hasPassword !== "boolean" ||
+          typeof data.setupComplete !== "boolean" ||
+          typeof data.oidcEnabled !== "boolean" ||
+          typeof data.oidcDisablePasswordLogin !== "boolean"
+        ) {
+          throw new Error("Authentication settings response is incomplete.");
+        }
+
+        if (data.nodeVersion) setNodeVersion(data.nodeVersion);
+        if (data.nodeCompatible === false) setNodeCompatible(false);
+        if (data.authenticated || !data.requireLogin) {
+          window.location.href = withBasePath("/dashboard");
+          return;
+        }
+        setHasPassword(data.hasPassword);
+        setSetupComplete(data.setupComplete);
+        setOidcEnabled(data.oidcEnabled);
+        setOidcDisablePasswordLogin(data.oidcDisablePasswordLogin);
+      } catch {
         clearTimeout(timeoutId);
-        setHasPassword(true);
-        setSetupComplete(true);
-        setOidcEnabled(false);
-        setOidcDisablePasswordLogin(false);
+        setAuthStatusError(true);
       }
     }
     checkAuth();
@@ -171,6 +180,32 @@ export default function LoginPage() {
         />
       </div>
     ) : null;
+  if (authStatusError) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6">
+        {nodeWarningBanner}
+        <Card padding="lg">
+          <div className="flex flex-col items-center gap-4 text-center">
+            <Alert
+              variant="critical"
+              dismissible={false}
+              icon={<Icon name="error" size={20} />}
+              title={t("errorOccurredRetry")}
+            />
+            <Button
+              type="button"
+              variant="primary"
+              className="h-11 text-sm font-medium"
+              onClick={() => window.location.reload()}
+            >
+              {t("tryAgain")}
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   if (
     hasPassword === null ||
     setupComplete === null ||
